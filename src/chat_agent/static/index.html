@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat Agent</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>Chat Agent</h1>
+    <button id="new-chat-button" type="button">New chat</button>
+  </header>
+  <main id="messages" aria-live="polite"></main>
+  <form id="composer">
+    <textarea id="message-input" rows="2" placeholder="Ask anything… (Enter to send, Shift+Enter for a new line)" autofocus></textarea>
+    <button id="send-button" type="submit" disabled>Send</button>
+  </form>
+  <script src="/static/vendor/marked.umd.js"></script>
+  <script src="/static/vendor/purify.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
