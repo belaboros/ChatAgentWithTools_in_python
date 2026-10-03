@@ -75,6 +75,10 @@ def server_search(id: str, query: str) -> dict[str, Any]:
     return {"type": "server_tool_use", "id": id, "name": "web_search", "input": {"query": query}}
 
 
+def server_code(id: str) -> dict[str, Any]:
+    return {"type": "server_tool_use", "id": id, "name": "code_execution", "input": {"code": "1"}}
+
+
 def search_results(tool_use_id: str, *urls: str) -> dict[str, Any]:
     results = [
         {"type": "web_search_result", "url": url, "title": url, "encrypted_content": "enc"}

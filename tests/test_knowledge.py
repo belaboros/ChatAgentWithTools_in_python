@@ -1,9 +1,17 @@
+import os
 from pathlib import Path
 
 import pytest
 
 from chat_agent.config import MAX_READ_BYTES
-from chat_agent.knowledge import AccessDenied, Entry, KnowledgeBase, NotFound, NotText
+from chat_agent.knowledge import (
+    AccessDenied,
+    Entry,
+    KnowledgeBase,
+    KnowledgeError,
+    NotFound,
+    NotText,
+)
 
 
 @pytest.fixture
@@ -71,7 +79,6 @@ def test_ac20_error_message_reveals_no_outside_path(kb: KnowledgeBase, outside: 
         (".", "."),
         ("readme.txt", "readme.txt"),
         ("notes/todo.md", "notes/todo.md"),
-        ("notes/../readme.txt", "readme.txt"),
         ("link_to_notes/todo.md", "notes/todo.md"),
     ],
 )
@@ -192,3 +199,55 @@ def test_ac20_read_through_escaping_symlink_denied(kb: KnowledgeBase) -> None:
 def test_ac21_knowledge_base_has_no_write_methods() -> None:
     public = {name for name in dir(KnowledgeBase) if not name.startswith("_")}
     assert public == {"list_dir", "read_text"}
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["notes/../readme.txt", "./notes/../notes/todo.md", "notes/..", "link_to_outside/../knowledge"],
+)
+def test_ac20_dotdot_components_denied(kb: KnowledgeBase, path: str) -> None:
+    # Even ".." that would stay inside is refused, so probes can't map symlinks outside the root.
+    with pytest.raises(AccessDenied):
+        kb._resolve(path)
+
+
+@pytest.mark.parametrize("path", ["a\x00b", "notes/\x00"])
+def test_nul_byte_path_is_knowledge_error(kb: KnowledgeBase, path: str) -> None:
+    with pytest.raises(KnowledgeError):
+        kb.read_text(path)
+    with pytest.raises(KnowledgeError):
+        kb.list_dir(path)
+
+
+needs_permissions = pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+
+
+@needs_permissions
+def test_unreadable_file_is_knowledge_error(kb: KnowledgeBase, root: Path) -> None:
+    secret = root / "locked.txt"
+    secret.write_text("x")
+    secret.chmod(0)
+    try:
+        with pytest.raises(KnowledgeError):
+            kb.read_text("locked.txt")
+    finally:
+        secret.chmod(0o600)
+
+
+@needs_permissions
+def test_unreadable_folder_is_knowledge_error(kb: KnowledgeBase, root: Path) -> None:
+    folder = root / "locked"
+    folder.mkdir()
+    folder.chmod(0)
+    try:
+        with pytest.raises(KnowledgeError):
+            kb.list_dir("locked")
+    finally:
+        folder.chmod(0o700)
+
+
+def test_symlink_loop_is_not_found_and_hidden(kb: KnowledgeBase, root: Path) -> None:
+    (root / "loop").symlink_to(root / "loop")
+    with pytest.raises(KnowledgeError):
+        kb.read_text("loop")
+    assert "loop" not in [entry.path for entry in kb.list_dir()]

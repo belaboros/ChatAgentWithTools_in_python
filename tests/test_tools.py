@@ -29,7 +29,7 @@ def test_ac21_tool_set_is_read_only() -> None:
 
 def test_ac12_web_search_is_server_tool_with_max_uses() -> None:
     (web_search,) = [t for t in tools(4) if t["name"] == "web_search"]
-    assert web_search == {"type": "web_search_20260209", "name": "web_search", "max_uses": 4}
+    assert web_search == {"type": "web_search_20250305", "name": "web_search", "max_uses": 4}
 
 
 def test_web_search_max_uses_is_at_least_one() -> None:
@@ -108,3 +108,20 @@ def test_invalid_input_is_error_result(kb: KnowledgeBase, name: str, tool_input:
     result = run_client_tool(name, tool_input, kb)
     assert result.is_error
     assert "invalid input" in result.content.lower()
+
+
+def test_nul_byte_path_is_tool_error(kb: KnowledgeBase) -> None:
+    result = run_client_tool("read_file", {"path": "a\x00b"}, kb)
+    assert result.is_error
+
+
+def test_unreadable_file_is_tool_error(kb: KnowledgeBase) -> None:
+    locked = kb.root / "locked.txt"
+    locked.write_text("x")
+    locked.chmod(0)
+    try:
+        result = run_client_tool("read_file", {"path": "locked.txt"}, kb)
+    finally:
+        locked.chmod(0o600)
+    assert result.is_error
+    assert str(kb.root) not in result.content  # no absolute paths in tool output

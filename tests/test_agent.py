@@ -25,6 +25,7 @@ from tests.fakes import (
     message,
     search_error,
     search_results,
+    server_code,
     server_search,
     text,
     tool_use,
@@ -366,3 +367,83 @@ async def test_truncated_text_answer_is_kept(kb: KnowledgeBase) -> None:
     events = await run(agent, history, "long please")
     assert events == [TextDelta("A very long answ"), Done()]
     assert roles(history) == ["user", "assistant"]
+
+
+async def test_ac11_only_web_search_results_count_as_server_tool_calls(kb: KnowledgeBase) -> None:
+    script = [
+        message(
+            server_code("srv_c"),  # not a web search
+            server_search("srv_1", "a"),
+            search_results("srv_1", "https://a.example"),
+            server_search("srv_2", "b"),
+            search_error("srv_2", "max_uses_exceeded"),  # rejected by the API: not a call made
+            tool_use("tu_1", "list_files", {}),
+            stop_reason="tool_use",
+        ),
+        message(text("done")),
+    ]
+    agent, fake = make_agent(kb, script)
+    await run(agent, [], "q")
+    assert fake.requests[1].max_web_searches == 8  # 10 - 1 search - 1 listing
+
+
+async def test_ac11_limit_note_when_searches_exhaust_budget(kb: KnowledgeBase) -> None:
+    script = [
+        message(
+            server_search("srv_1", "a"),
+            search_results("srv_1", "https://a.example"),
+            server_search("srv_2", "b"),
+            search_results("srv_2", "https://b.example"),
+            tool_use("tu_1", "read_file", {"path": "notes/todo.md"}),
+            stop_reason="tool_use",
+        ),
+        message(text("Best effort; I hit the tool limit.")),
+    ]
+    agent, fake = make_agent(kb, script, max_tool_calls=2)
+    history: list[BetaMessageParam] = []
+    await run(agent, history, "q")
+    results = tool_results(history[2])
+    assert results[0]["is_error"] is True and "limit" in results[0]["content"].lower()
+    assert any(r["type"] == "text" and "limit" in r["text"].lower() for r in results)
+    assert fake.requests[1].tools_enabled is False
+
+
+async def test_ac11_limit_note_after_pause_turn_exhausts_budget(kb: KnowledgeBase) -> None:
+    script = [
+        message(
+            server_search("srv_1", "a"),
+            search_results("srv_1", "https://a.example"),
+            server_search("srv_2", "b"),
+            search_results("srv_2", "https://b.example"),
+            stop_reason="pause_turn",
+        ),
+        message(text("Here is what I found; I hit the tool limit.")),
+    ]
+    agent, fake = make_agent(kb, script, max_tool_calls=2)
+    history: list[BetaMessageParam] = []
+    events = await run(agent, history, "q")
+    sent = fake.requests[1]
+    assert sent.tools_enabled is False
+    assert sent.messages[-1]["role"] == "system"  # allowed right after a server tool result
+    assert "limit" in str(sent.messages[-1]["content"]).lower()
+    assert events[-1] == Done()
+    assert roles(history) == ["user", "assistant", "system", "assistant"]
+
+
+async def test_ac11_pause_on_pending_search_resumes_without_note(kb: KnowledgeBase) -> None:
+    script = [
+        message(
+            server_search("srv_1", "a"),
+            search_results("srv_1", "https://a.example"),
+            server_search("srv_2", "b"),  # pending: the server runs it when resumed
+            stop_reason="pause_turn",
+        ),
+        message(search_results("srv_2", "https://b.example"), text("ok")),
+    ]
+    agent, fake = make_agent(kb, script, max_tool_calls=1)
+    await run(agent, [], "q")
+    sent = fake.requests[1]
+    assert sent.tools_enabled is False
+    assert (
+        sent.messages[-1]["role"] == "assistant"
+    )  # plain resume; a note here is rejected by the API

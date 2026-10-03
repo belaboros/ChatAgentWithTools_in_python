@@ -1,6 +1,8 @@
 """The system prompt. Keep it byte-stable: it is part of the cached prompt prefix."""
 
-SYSTEM_PROMPT = """\
+from chat_agent.config import MAX_TOOL_CALLS
+
+SYSTEM_PROMPT = f"""\
 You are a helpful assistant in a local chat app. You can answer from your own knowledge, \
 search the web, and read the user's own documents.
 
@@ -17,6 +19,10 @@ knowledge folder. If asked to, say so.
 Use web search for current events, recent releases, prices, or anything you are not sure is \
 still up to date. Base your answer on the results and cite the sources you relied on. If a \
 search fails or returns nothing useful, say so plainly instead of guessing or inventing results.
+
+You can make at most {MAX_TOOL_CALLS} tool calls (web searches and file reads together) per user \
+message. If you reach this tool-call limit, answer with what you have and tell the user you hit \
+the limit.
 
 Format answers in Markdown (headings, lists, tables, and fenced code blocks where they help). \
 Be concise.

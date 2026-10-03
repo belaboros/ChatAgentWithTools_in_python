@@ -21,7 +21,7 @@ Browser (index.html + app.js)                    Python server (FastAPI on 127.0
 Key decisions:
 
 1. **Claude API with a manual agent loop** (`AsyncAnthropic`, `client.beta.messages.stream`). Web search uses
-   Anthropic's **server-side** `web_search_20260209` tool, which runs the searches and returns citations, so we don't
+   Anthropic's **server-side** `web_search_20250305` tool (see the revision note below), which runs the searches and returns citations, so we don't
    need a separate search provider or API key. `list_files` / `read_file` are **client tools** that we run locally.
 2. **Conversation state lives on the server, in memory**, keyed by a random conversation id that the page creates on
    every load (so a reload starts fresh, AC-6) and on "New chat" (AC-5). The server stores the assistant's content
@@ -45,6 +45,21 @@ Key decisions:
 6. **Markdown is rendered in the browser** with `marked` and sanitized with `DOMPurify` before insertion, so no HTML
    or script in a reply can run (AC-25). Both libraries are vendored into `static/vendor/`, so the app works without a
    CDN and with no build step.
+
+### Revision after /verify (2026-10-03)
+
+- **Web search tool version:** `web_search_20260209` ("dynamic filtering") runs searches from a server-side code
+  sandbox. Its answers cite sources only as Markdown links in the text, with no structured citations, so AC-13 failed
+  live. `web_search_20250305` returns `web_search_result_location` citations on Sonnet 5.5 (confirmed by a live
+  probe). Switched to `web_search_20250305`; the cost is somewhat higher token use per search.
+- **Budget counting:** only `server_tool_use` blocks named `web_search` count against the tool budget. The limit note
+  is added whenever the budget is exhausted (including by web searches), and the system prompt mentions the limit.
+- **Rendering:** DOMPurify forbids `img` (and other remote-loading tags). The server sends a Content-Security-Policy
+  (`default-src 'self'; img-src 'self' data:; ...`) as a second line of defense (AC-25).
+- **Host check:** Starlette `TrustedHostMiddleware` with `127.0.0.1` and `localhost` (AC-26).
+- **Sandbox hardening:** any `..` path component is rejected outright, so the result of a probe can't reveal symlinks
+  outside the folder. `ValueError` (e.g. a NUL byte in the path) and `OSError` (e.g. permission denied) become tool
+  errors instead of failing the turn.
 
 ### Alternatives considered
 
@@ -209,7 +224,7 @@ logic-free (it renders the events it receives), so little can go wrong there uns
 | AC-9 | unit + api + manual | `tests/test_agent.py`, `tests/test_web.py`, checklist | `ToolActivity` events in call order with query/path, serialized as SSE `activity`; manual: lines shown in order |
 | AC-10 | unit | `tests/test_agent.py` | Fake script: list → read → search → answer; all executed, final text returned |
 | AC-11 | unit | `tests/test_agent.py` | 10 calls run, 11th gets `is_error`; next request has `tool_choice none`; `max_uses` shrinks as budget is spent |
-| AC-12 | unit + live | `tests/test_llm.py`, `tests/test_agent.py`, `tests/live/test_live.py` | Request includes `web_search_20260209`; server-tool results flow into the answer; live: current-events question triggers a search |
+| AC-12 | unit + live | `tests/test_llm.py`, `tests/test_agent.py`, `tests/live/test_live.py` | Request includes `web_search_20250305`; server-tool results flow into the answer; live: current-events question triggers a search |
 | AC-13 | unit + api + manual | `tests/test_agent.py`, `tests/test_web.py`, checklist | Citations become de-duplicated `Sources` and an SSE `sources` event; manual: shown as clickable links |
 | AC-14 | unit | `tests/test_agent.py`, `tests/test_llm.py` | `web_search_tool_result` with error content doesn't raise; turn completes; system prompt instructs to report failure |
 | AC-15 | unit | `tests/test_knowledge.py` | Nested listing returns relative names with dir flag only; tool output contains no sizes |
@@ -223,6 +238,7 @@ logic-free (it renders the events it receives), so little can go wrong there uns
 | AC-23 | unit | `tests/test_main.py` | No `ANTHROPIC_API_KEY` → exits non-zero with message naming the variable and `.env.example` |
 | AC-24 | unit + api + manual | `tests/test_agent.py`, `tests/test_web.py`, checklist | Each SDK error type → readable `ErrorEvent`, history rolled back; next message succeeds; manual: error shown (invalid key), input usable again |
 | AC-25 | api + manual | `tests/test_web.py`, checklist | Served page loads vendored `purify.min.js` and `marked.umd.js`; manual: heading/list/table/code render formatted; a reply quoting `<script>alert(1)</script>` and `<img src=x onerror=alert(1)>` shows no alert; user message shown literally |
+| AC-26 | api | `tests/test_web.py` | Foreign `Host` header → 400 and no LLM call; `127.0.0.1`/`localhost` (with port) accepted |
 
 Every test name starts with its AC ID (e.g. `test_ac20_symlink_escape_is_denied`).
 

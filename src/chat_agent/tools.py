@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from anthropic.types.beta import BetaToolParam, BetaToolUnionParam, BetaWebSearchTool20260209Param
+from anthropic.types.beta import BetaToolParam, BetaToolUnionParam, BetaWebSearchTool20250305Param
 
 from chat_agent.knowledge import KnowledgeBase, KnowledgeError
 
@@ -56,9 +56,14 @@ _READ_FILE_TOOL: BetaToolParam = {
 
 
 def tool_definitions(max_web_searches: int) -> list[BetaToolUnionParam]:
-    """All tools offered to the model. File access is read-only by construction (AC-21)."""
-    web_search: BetaWebSearchTool20260209Param = {
-        "type": "web_search_20260209",
+    """All tools offered to the model. File access is read-only by construction (AC-21).
+
+    Web search uses the basic `web_search_20250305` version: its answers carry structured
+    citations (AC-13). The `_20260209` "dynamic filtering" version searches from a code
+    sandbox and cites only as links in the text.
+    """
+    web_search: BetaWebSearchTool20250305Param = {
+        "type": "web_search_20250305",
         "name": WEB_SEARCH,
         "max_uses": max(1, max_web_searches),
     }

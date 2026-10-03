@@ -106,3 +106,14 @@ def test_ac2_not_reachable_on_lan_ip() -> None:
     finally:
         server.should_exit = True
         thread.join(timeout=5)
+
+
+def test_ac22_knowledge_path_is_a_file_exits_with_message(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "knowledge"
+    path.write_text("oops")
+    with pytest.raises(SystemExit) as exc:
+        config.ensure_knowledge_dir(path)
+    assert exc.value.code != 0
+    assert "is not a folder" in capsys.readouterr().err

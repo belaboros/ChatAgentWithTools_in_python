@@ -23,6 +23,10 @@ class NotText(KnowledgeError):
     pass
 
 
+class Unreadable(KnowledgeError):
+    """Exists, but the OS refused access (e.g. permissions). Messages carry no absolute paths."""
+
+
 @dataclass(frozen=True)
 class Entry:
     """A listing entry: name only, no sizes or other metadata (AC-15)."""
@@ -46,13 +50,19 @@ class KnowledgeBase:
     def _resolve(self, path: str) -> Path:
         """Map a model-supplied relative path to an absolute path inside the root.
 
-        This is the single sandbox check (AC-20): the path is fully resolved, following
-        symlinks and `..`, and must still lie inside the root.
+        This is the single sandbox check (AC-20): `~`, absolute paths, and any `..` component are
+        refused outright (so probes can't map symlinks outside the root); then the path is fully
+        resolved, following symlinks, and must still lie inside the root.
         """
+        if "\x00" in path:
+            raise NotFound("Not found: the path contains an invalid character.")
         denied = AccessDenied(f"Access denied: '{path}' is outside the knowledge folder.")
-        if path.startswith("~") or Path(path).is_absolute():
+        if path.startswith("~") or Path(path).is_absolute() or ".." in Path(path).parts:
             raise denied
-        resolved = (self.root / path).resolve()
+        try:
+            resolved = (self.root / path).resolve()
+        except OSError, RuntimeError:  # e.g. a symlink loop
+            raise NotFound(f"Not found: '{path}' cannot be resolved.") from None
         if not resolved.is_relative_to(self.root):
             raise denied
         return resolved
@@ -65,11 +75,19 @@ class KnowledgeBase:
         if not folder.is_dir():
             raise NotFound(f"Not found: '{path}' is not a folder in the knowledge folder.")
         entries: list[Entry] = []
-        for child in folder.iterdir():
-            # Hide symlinks whose target escapes the root, so no outside names leak (AC-20).
-            if not child.resolve().is_relative_to(self.root):
+        try:
+            children = list(folder.iterdir())
+        except OSError:
+            raise Unreadable(f"'{path}' cannot be listed (permission denied).") from None
+        for child in children:
+            try:
+                target = child.resolve(strict=True)
+            except OSError, RuntimeError:  # broken link or symlink loop: nothing to read
                 continue
-            entries.append(Entry(self._relative(folder / child.name), is_dir=child.is_dir()))
+            # Hide symlinks whose target escapes the root, so no outside names leak (AC-20).
+            if not target.is_relative_to(self.root):
+                continue
+            entries.append(Entry(self._relative(folder / child.name), is_dir=target.is_dir()))
         return sorted(entries, key=lambda entry: entry.path)
 
     def read_text(self, path: str) -> FileContent:
@@ -77,8 +95,11 @@ class KnowledgeBase:
         file = self._resolve(path)
         if not file.is_file():
             raise NotFound(f"Not found: '{path}' is not a file in the knowledge folder.")
-        with file.open("rb") as handle:
-            data = handle.read(self.max_read_bytes + 1)
+        try:
+            with file.open("rb") as handle:
+                data = handle.read(self.max_read_bytes + 1)
+        except OSError:
+            raise Unreadable(f"'{path}' cannot be read (permission denied or I/O error).") from None
         truncated = len(data) > self.max_read_bytes
         data = data[: self.max_read_bytes]
         not_text = NotText(f"'{path}' is not a readable text file.")

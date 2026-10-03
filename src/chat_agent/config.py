@@ -32,4 +32,9 @@ def require_api_key() -> None:
 
 def ensure_knowledge_dir(path: Path = KNOWLEDGE_DIR) -> None:
     """Create the readable folder if it does not exist yet (AC-22)."""
+    if path.exists() and not path.is_dir():
+        print(
+            f"Error: {path} exists but is not a folder. Move it away and restart.", file=sys.stderr
+        )
+        sys.exit(1)
     path.mkdir(parents=True, exist_ok=True)

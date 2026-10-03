@@ -100,13 +100,40 @@ and lint/type checks are clean.
 
 ### Verification support
 
-- [ ] **T19** — Live smoke test (marker `live`, skipped without `ANTHROPIC_API_KEY`): a current-events question
+- [x] **T19** — Live smoke test (marker `live`, skipped without `ANTHROPIC_API_KEY`): a current-events question
   triggers a web search, and the answer has sources; a question about a temp `knowledge/` file reads it. *(AC-12, AC-13, AC-16)*
   - Test: `tests/live/test_live.py` — run with `uv run pytest -m live`.
 - [x] **T20** — `tests/manual/ui_checklist.md` (one step per UI AC: exact input, expected result, pass/fail column)
   and `README.md` (setup, `.env`, running, tests, the knowledge folder). *(AC-1, AC-3, AC-5, AC-6, AC-7, AC-8, AC-9,
   AC-13, AC-24, AC-25)*
   - Test: checklist executed against the running app during `/verify`; results recorded in the file.
+
+### Follow-ups from /verify (2026-10-03)
+
+- [x] **T21** — Switch web search to `web_search_20250305` (structured citations). *(AC-12, AC-13)*
+  - Test: `tests/test_tools.py::test_ac12_web_search_is_server_tool_with_max_uses` (updated type),
+    `tests/test_llm.py::test_ac12_request_includes_web_search_tool`; live `tests/live/test_live.py` must pass.
+- [x] **T22** — Budget: count only `web_search` server tool uses (not `code_execution`); add the limit note whenever
+  the budget is exhausted, including by searches (end_turn and pause_turn paths); mention the limit in the system
+  prompt. *(AC-11)*
+  - Test: `test_ac11_only_web_searches_count_as_server_tool_calls`, `test_ac11_limit_note_when_searches_exhaust_budget`,
+    `test_ac11_limit_note_after_pause_turn_exhausts_budget`, `tests/test_prompts.py` (limit phrase).
+- [x] **T23** — No remote content in rendered replies: DOMPurify forbids `img` and other remote-loading tags/attributes;
+  links in replies open in a new tab; Content-Security-Policy header on all responses. *(AC-25)*
+  - Test: `tests/test_web.py::test_ac25_every_inner_html_is_sanitized_without_images`, `::test_ac25_csp_header`;
+    checklist row for an image in a reply.
+- [x] **T24** — `TrustedHostMiddleware` accepting only `127.0.0.1` and `localhost`. *(AC-26)*
+  - Test: `tests/test_web.py::test_ac26_foreign_host_rejected`, `::test_ac26_local_hosts_accepted`.
+- [x] **T25** — Sandbox hardening: reject any `..` component; map `ValueError`/`OSError` to tool errors. *(AC-19, AC-20)*
+  - Test: `tests/test_knowledge.py::test_ac20_dotdot_components_denied`, `::test_nul_byte_path_is_tool_error`,
+    `::test_unreadable_file_is_tool_error`; `tests/test_tools.py` equivalents.
+- [x] **T26** — Stronger tests: in-stream busy guard, client disconnect mid-reply rolls back and releases the
+  conversation, static check that the page starts a new conversation on load. *(AC-6, AC-7, AC-24)*
+  - Test: `tests/test_web.py::test_ac7_in_stream_busy_guard`, `::test_ac24_disconnect_rolls_back_and_releases`,
+    `::test_ac6_page_starts_new_conversation_on_load`.
+- [x] **T27** — Polish: readable message for validation errors (array `detail`), an error shown if the stream ends
+  without `done`, a clear startup error if `knowledge` is a file, and a README note on hard links. *(AC-22, AC-24)*
+  - Test: `tests/test_main.py::test_ac22_knowledge_path_is_a_file_exits_with_message`; UI parts → checklist.
 
 ## AC coverage
 
@@ -124,9 +151,9 @@ and lint/type checks are clean.
 | AC-10 | T9 | | AC-23 | T2 |
 | AC-11 | T10, T14 | | AC-24 | T12, T16, T17, T20 |
 | AC-12 | T11, T13, T14, T19 | | AC-25 | T17, T20 |
-| AC-13 | T11, T13, T16, T17, T19, T20 | | | |
+| AC-13 | T11, T13, T16, T17, T19, T20, T21 | | AC-26 | T24 |
 
-All 25 ACs are covered; no gaps.
+All 26 ACs are covered; no gaps. Follow-ups T21–T27 strengthen AC-6, 7, 11, 12, 13, 19, 20, 22, 24, 25.
 
 ## Notes
 
@@ -149,3 +176,12 @@ Anything discovered during implementation (deviations must be reflected back int
   what makes AC-11 strict. But tools are the first part of the cached prompt prefix, so a changed `max_uses`
   invalidates the prompt cache for the next request within the same message. Correctness (AC-11) wins for now;
   revisit if costs matter.
+- **T21/T22 (live probes, 2026-10-03):** `web_search_20250305` returns structured citations on Sonnet 5.5. The API
+  enforces `max_uses` itself: extra attempts come back as `max_uses_exceeded` error results, so the budget counts
+  search *results*, not attempts. A mid-conversation system message is accepted only right after an assistant
+  turn ending in a server tool **result**. A turn paused on a pending search resumes fine with `tool_choice: none`,
+  and the server still runs that one search, which is then counted. A user message after a pending search is rejected.
+- **Manual checklist, step 3 (AC-3), 2026-10-03, failed → fixed:** every reply showed `[object Object]` per streamed
+  chunk. `app.js`'s `text` handler took the SSE payload `{text}` as a string, unlike the other handlers. Fixed to
+  `text({ text })`. Regression test `tests/test_web.py::test_ac3_page_unpacks_every_server_event` checks that every
+  event the server emits is destructured with the same field names in `app.js`.

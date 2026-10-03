@@ -57,6 +57,16 @@ def _cited_sources(message: BetaMessage) -> list[Source]:
     ]
 
 
+def _searches_made(message: BetaMessage) -> int:
+    """Web searches that ran. Attempts the API rejected for exceeding `max_uses` don't count,
+    and neither do other server tools (AC-11)."""
+    return sum(
+        block.type == "web_search_tool_result"
+        and (isinstance(block.content, list) or block.content.error_code != "max_uses_exceeded")
+        for block in message.content
+    )
+
+
 def _limit_note(limit: int) -> str:
     return (
         f"Tool-call limit reached ({limit} per message). No more tools are available for this "
@@ -121,7 +131,7 @@ class Agent:
                     yield event
             assert message is not None, "LLM stream ended without a final message"
             history.append({"role": "assistant", "content": message.content})
-            budget -= sum(block.type == "server_tool_use" for block in message.content)
+            budget -= _searches_made(message)
             for source in _cited_sources(message):
                 sources.setdefault(source.url, source)
 
@@ -130,6 +140,11 @@ class Agent:
                 pauses += 1
                 if pauses > MAX_PAUSE_CONTINUATIONS:
                     raise TurnFailed("The web search took too long and was stopped. Please retry.")
+                last = message.content[-1] if message.content else None
+                if budget <= 0 and last is not None and last.type == "web_search_tool_result":
+                    # The API only accepts a system message right after a server tool result; a
+                    # turn paused on a pending search is resumed as-is (it sees max_uses instead).
+                    history.append({"role": "system", "content": _limit_note(self.max_tool_calls)})
                 continue
             pauses = 0
             if message.stop_reason == "refusal":

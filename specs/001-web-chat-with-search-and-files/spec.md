@@ -38,7 +38,9 @@ folder the user deliberately put there.
   the assistant's reply appears below it, streamed in progressively as it is generated.
 - **AC-25** — *Given* the assistant's reply contains Markdown (headings, lists, emphasis, links, tables, code blocks),
   *when* it is displayed, *then* it is rendered as formatted Markdown, not shown as raw Markdown syntax. My own messages
-  are shown as plain text. Rendering must not execute any HTML or scripts contained in a reply.
+  are shown as plain text. Rendering must not execute any HTML or scripts contained in a reply, and must not load
+  remote content: images in a reply are not loaded or displayed, so a reply can't send data to another server
+  without a click.
 - **AC-4** — *Given* an ongoing conversation, *when* I send a follow-up message, *then* the assistant's reply takes the
   earlier messages of this conversation into account.
 - **AC-5** — *Given* an ongoing conversation, *when* I click "New chat", *then* the conversation is cleared and the
@@ -90,6 +92,10 @@ folder the user deliberately put there.
 
 ### Errors & configuration
 
+- **AC-26** — *Given* the app is running, *when* a request reaches it with a `Host` header other than `127.0.0.1` or
+  `localhost` (with or without the port), *then* it is rejected and no chat, conversation, or file operation is
+  performed (protects against DNS-rebinding attacks from malicious web pages).
+
 - **AC-23** — *Given* no Anthropic API key is configured, *when* I start the app, *then* it exits immediately with a
   clear message explaining how to set the key.
 - **AC-24** — *Given* the Anthropic API returns an error or is unreachable during a reply (e.g. invalid key, rate
@@ -112,6 +118,9 @@ folder the user deliberately put there.
 
 - **Security:** File access is strictly sandboxed to `./knowledge` (resolved relative to the project root). This is
   the most important constraint of the feature and must be covered by tests for every escape route listed in AC-20.
+- **Hostile content:** web pages and files may contain instructions aimed at the assistant (prompt injection). The
+  app limits what such content can achieve: read-only tools, no remote content loaded by the page (AC-25), and
+  requests only from the app's own origin (AC-26).
 - **Secrets:** The Anthropic API key comes from the environment (or a local, git-ignored `.env` file) and is never
   shown in the UI, logs, or committed to git.
 - **Privacy:** The contents of `./knowledge` are personal and must not be committed to git.
@@ -135,3 +144,5 @@ folder the user deliberately put there.
 - 2026-10-03 — Confirmed 100 KB file read limit; all open questions resolved.
 - 2026-10-03 — Approved.
 - 2026-10-03 — Plan approved (Claude Sonnet 5.5; UI ACs verified by manual checklist instead of browser tests).
+- 2026-10-03 — After /verify: AC-25 extended (remote images not loaded); added AC-26 (Host-header check against DNS
+  rebinding) and the "Hostile content" constraint. Status back to In progress for follow-up tasks T21–T27.

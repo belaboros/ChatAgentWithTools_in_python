@@ -64,7 +64,7 @@ async def test_ac12_request_includes_web_search_tool() -> None:
     await collect(api.llm())
     tools = {tool["name"]: tool for tool in api.requests[0]["tools"]}
     assert set(tools) == {"web_search", "list_files", "read_file"}
-    assert tools["web_search"]["type"] == "web_search_20260209"
+    assert tools["web_search"]["type"] == "web_search_20250305"
 
 
 async def test_ac11_max_uses_set_from_budget() -> None:

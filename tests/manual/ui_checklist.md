@@ -22,7 +22,9 @@ Run this checklist against the real app before `/verify 001` and after any chang
 | 12 | AC-25 | Send `Reply with a markdown heading, a bullet list, a 2x2 table and a python code block.` | Rendered as formatted heading, list, table, code block (no raw `#`, `|`, or backticks) | |
 | 13 | AC-25 | Send ``Repeat exactly, without a code block: <script>alert(1)</script> <img src=x onerror=alert(1)> <b>bold</b>`` | No alert pops up; at most harmless formatting is shown | |
 | 14 | AC-25 | Send `<b>not bold</b> *not italic*` | Your own message shows the literal characters | |
-| 15 | AC-24 | Stop the app; start it with `ANTHROPIC_API_KEY=invalid uv run chat-agent`; send `hi` | Readable error about the API key; input usable again; a second message also shows the error, no restart needed | |
+| 15 | AC-25 | Open DevTools → Network. Send ``Reply with exactly this, not in a code block: ![pixel](https://example.com/pixel.png?d=secret)`` | No image shown; **no** request to example.com in the Network tab | |
+| 16 | AC-13 | In a reply that has links or sources, click a link | Opens in a new tab; the chat stays as it was | |
+| 17 | AC-24 | Stop the app; start it with `ANTHROPIC_API_KEY=invalid uv run chat-agent`; send `hi` | Readable error about the API key; input usable again; a second message also shows the error, no restart needed | |
 
 **Run log** — date, tester, git commit, pass/fail per row:
 
